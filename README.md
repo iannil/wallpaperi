@@ -1,6 +1,6 @@
 # Wallpaperi
 
-**English** | [简体中文](README.zh-CN.md)
+**English** | [Simplified Chinese](README.zh-CN.md)
 
 A native macOS wallpaper changer built with SwiftUI and AppKit, powered by [Wallhaven](https://wallhaven.cc/help/api). Version 1.1.0 requires macOS 13 or later and has no third-party dependencies.
 
@@ -9,13 +9,13 @@ The app interface is currently in Chinese. This repository provides documentatio
 ## Getting started
 
 1. Open `dist/Wallpaperi.app` after building it using the instructions below. To launch it at login, first copy it to your Applications folder.
-2. In **通用设置 (General)**, enter your API key and click **保存 Key (Save Key)**. Public SFW searches work without a key; NSFW requires a valid key.
-3. In **壁纸筛选 (Filters)**, enter keywords and choose categories and content ratings. SFW is always included; Sketchy and NSFW have separate toggles.
-4. In **下载与存储 (Downloads & Storage)**, choose a folder. The default is `~/Pictures/Wallpaperi`.
-5. Click **保存设置 (Save Settings)**, then **立即更换 (Change Now)** in **当前壁纸 (Current Wallpaper)**.
-6. Enable automatic rotation in **显示与轮换 (Displays & Rotation)** and save. Intervals range from 5 minutes to 24 hours. Notifications can be enabled in General and require macOS permission.
+2. In **General**, enter your API key and click **Save Key**. Public SFW searches work without a key; NSFW requires a valid key.
+3. In **Filters**, enter keywords and choose categories and content ratings. SFW is always included; Sketchy and NSFW have separate toggles.
+4. In **Downloads & Storage**, choose a folder. The default is `~/Pictures/Wallpaperi`.
+5. Click **Save Settings**, then **Change Now** in **Current Wallpaper**.
+6. Enable automatic rotation in **Displays & Rotation** and save. Intervals range from 5 minutes to 24 hours. Notifications can be enabled in General and require macOS permission.
 
-The app has six separate tabs: Current Wallpaper, Filters, Displays & Rotation, Downloads & Storage, My Preferences (我的喜好), and General. Ordinary settings require saving; API keys, likes, the recommendation toggle, and login items take effect immediately.
+The app has six separate tabs: Current Wallpaper, Filters, Displays & Rotation, Downloads & Storage, My Preferences, and General. Ordinary settings require saving; API keys, likes, the recommendation toggle, and login items take effect immediately.
 
 Closing the window keeps the app running in the menu bar, where you can change wallpapers, pause rotation, or reopen the window. Quitting stops rotation. The timer starts from launch, pauses during sleep, and performs at most one overdue rotation after waking.
 
@@ -30,7 +30,7 @@ Closing the window keeps the app running in the menu bar, where you can change w
 
 ## Likes and personalized recommendations
 
-Click the heart on Current Wallpaper or a history entry to like or unlike an image. **我的喜好 (My Preferences)** shows your collection, learned tags, keywords and categories, and a toggle for personalized recommendations.
+Click the heart on Current Wallpaper or a history entry to like or unlike an image. **My Preferences** shows your collection, learned tags, keywords and categories, and a toggle for personalized recommendations.
 
 Likes are stored locally in `~/Library/Application Support/Wallpaperi/preferences.json`. They are not synchronized with your Wallhaven account and are independent of the 300-entry history limit. Liking the same image again does not increase its weight. Unliking rebuilds the profile from the remaining likes.
 
@@ -105,4 +105,4 @@ To upgrade, quit the running older version and reopen `dist/Wallpaperi.app`. Exi
 
 ## Image attribution
 
-Images belong to their original creators. The **来源 (Source)** link in history and favorites opens the original Wallhaven page.
+Images belong to their original creators. The **Source** link in history and favorites opens the original Wallhaven page.
