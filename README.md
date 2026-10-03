@@ -1,6 +1,6 @@
 # Wallpaperi
 
-**English** | [Simplified Chinese](README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md)
 
 A native macOS wallpaper changer built with SwiftUI and AppKit, powered by [Wallhaven](https://wallhaven.cc/help/api). Version 1.1.0 requires macOS 13 or later and has no third-party dependencies.
 
