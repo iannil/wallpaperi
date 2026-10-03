@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import ServiceManagement
 import WallpaperCore
+import ImageIO
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -21,11 +22,15 @@ final class AppModel: ObservableObject {
     @Published var selectedTab = 0
     @Published private(set) var launchAtLogin = false
     @Published private(set) var loginNeedsApproval = false
+    @Published private(set) var storageStatus = ""
+    @Published private(set) var folderAccessRevision = 0
+    let sandboxed = SandboxEnvironment.isEnabled
     private var apiKey = ""
     private let store = LocalStore()
+    private var folderAccess: FolderAccess?
     private let client = WallhavenClient()
     private var operation: Task<Void, Never>?
-    private var ticker: Task<Void, Never>?
+    private var ticker: RotationTicker?
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
     private var generation = UUID()
@@ -40,17 +45,33 @@ final class AppModel: ObservableObject {
     func isLiked(_ id: String) -> Bool { preferences.favorites.contains { $0.id == id } }
 
     init() {
-        let defaults = Settings(downloadDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Wallpaperi").path)
+        let defaultFolder = sandboxed ? store.directory.appendingPathComponent("Wallpapers", isDirectory: true)
+            : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Wallpaperi")
+        let defaults = Settings(downloadDirectory: defaultFolder.path)
+        if ProcessInfo.processInfo.arguments.contains("--sandbox-check") {
+            settings = defaults; savedSettings = defaults
+            displays = DesktopService.displays()
+            return
+        }
         var initial = defaults
         var loadError: String?
         do { initial = try store.read("settings.json", as: Settings.self) ?? defaults }
-        catch { loadError = "设置文件无法读取，当前使用默认设置；保存后将覆盖损坏的设置文件。" }
+        catch { loadError = "设置文件无法读取，当前使用默认设置；请恢复资料库备份后再保存。" }
         settings = initial
         savedSettings = initial
         do { history = try store.read("history.json", as: [HistoryEntry].self) ?? [] }
         catch { loadError = "历史记录无法读取，已下载的图片仍保留在原目录。" }
         do { preferences = try store.read("preferences.json", as: Preferences.self) ?? Preferences() }
-        catch { loadError = "点赞记录无法读取，请检查 preferences.json 或从备份恢复。" }
+        catch { loadError = "点赞记录无法读取，请检查资料库或从备份恢复。" }
+        do { folderAccess = try FolderAccess(store: store, sandboxed: sandboxed) }
+        catch { loadError = "目录授权记录无法读取，请恢复资料库备份。" }
+        if sandboxed {
+            do { _ = try acquireFolder(initial.downloadDirectory) }
+            catch {
+                initial.automatic = false; settings.automatic = false; savedSettings.automatic = false
+                storageStatus = "旧目录需要重新授权；自动轮换已暂停。请选择保存目录。"
+            }
+        }
         if !ProcessInfo.processInfo.arguments.contains("--smoke-test") {
             do { apiKey = try KeychainStore.read(); hasAPIKey = !apiKey.isEmpty }
             catch { loadError = error.localizedDescription }
@@ -66,17 +87,11 @@ final class AppModel: ObservableObject {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshDisplays(); self?.tick() }
         }
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard !Task.isCancelled else { break }
-                self?.tick()
-            }
-        }
+        ticker = RotationTicker { [weak self] in self?.tick() }
     }
 
     private func tick() {
-        guard savedSettings.automatic, !busy, let nextChange, nextChange <= Date() else { return }
+        guard RotationDecision.isDue(automatic: savedSettings.automatic, busy: busy, nextChange: nextChange) else { return }
         changeNow()
     }
 
@@ -88,6 +103,7 @@ final class AppModel: ObservableObject {
     func saveSettings() {
         do {
             try settings.validate(apiKey: apiKey)
+            _ = try acquireFolder(settings.downloadDirectory)
             try store.save(settings, name: "settings.json")
             cancel()
             savedSettings = settings
@@ -101,6 +117,7 @@ final class AppModel: ObservableObject {
         updated.automatic.toggle()
         do {
             try updated.validate(apiKey: apiKey)
+            if updated.automatic { _ = try acquireFolder(updated.downloadDirectory) }
             try store.save(updated, name: "settings.json")
             cancel()
             savedSettings = updated
@@ -138,15 +155,99 @@ final class AppModel: ObservableObject {
         panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
         panel.prompt = "选择保存目录"
         panel.directoryURL = URL(fileURLWithPath: settings.downloadDirectory)
-        if panel.runModal() == .OK, let url = panel.url { settings.downloadDirectory = url.path }
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                guard let folderAccess else { throw WallpaperError.message("目录授权记录无法读取。") }
+                try folderAccess.authorize(url)
+                settings.downloadDirectory = url.path
+                folderAccessRevision += 1
+                storageStatus = "目录授权已保存；点击「保存设置」应用新的下载位置。"
+            } catch { errorMessage = error.localizedDescription }
+        }
     }
 
     func revealDirectory() {
-        let url = URL(fileURLWithPath: savedSettings.downloadDirectory)
         do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            NSWorkspace.shared.open(url)
+            let lease = try acquireFolder(savedSettings.downloadDirectory)
+            defer { withExtendedLifetime(lease) {} }
+            try FileManager.default.createDirectory(at: lease.url, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(lease.url)
         } catch { errorMessage = "无法打开保存目录：\(error.localizedDescription)" }
+    }
+
+    private func acquireFolder(_ path: String) throws -> FolderLease {
+        guard let folderAccess else { throw WallpaperError.message("目录授权记录无法读取，请检查资料库。") }
+        return try folderAccess.acquire(URL(fileURLWithPath: path))
+    }
+
+    func revealFile(_ path: String) {
+        do {
+            let lease = try acquireFolder(path)
+            defer { withExtendedLifetime(lease) {} }
+            NSWorkspace.shared.activateFileViewerSelecting([lease.url])
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func previewImage(_ path: String) -> NSImage? {
+        guard let lease = try? acquireFolder(path) else { return nil }
+        defer { withExtendedLifetime(lease) {} }
+        guard let source = CGImageSourceCreateWithURL(lease.url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1200,
+                kCGImageSourceCreateThumbnailWithTransform: true
+              ] as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: .zero)
+    }
+
+    func authorizeImageFolder(_ path: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: path).deletingLastPathComponent()
+        panel.prompt = "授权文件夹"
+        panel.message = "选择包含这张历史壁纸的文件夹。授权也用于该目录中其他历史图片的预览。"
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                guard let folderAccess else { throw WallpaperError.message("目录授权记录无法读取。") }
+                guard FolderAccess.relativePath(of: URL(fileURLWithPath: path), inside: url) != nil else {
+                    throw WallpaperError.message("请选择包含该图片原路径的文件夹。若原文件已移动，需恢复到原位置。")
+                }
+                try folderAccess.authorize(url)
+                folderAccessRevision += 1
+                storageStatus = "历史图片目录已授权"
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    func usePrivateDirectory() {
+        settings.downloadDirectory = store.directory.appendingPathComponent("Wallpapers", isDirectory: true).path
+        storageStatus = "已选择应用内目录；点击「保存设置」生效。"
+    }
+
+    func importLegacyLibrary() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        panel.directoryURL = SandboxEnvironment.legacyDirectory
+        panel.prompt = "导入旧版数据"
+        panel.message = "选择旧版 Library/Application Support/Wallpaperi 目录。设置将被导入配置替换，轮换暂停；历史和点赞合并，原文件保留。"
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        let started = source.startAccessingSecurityScopedResource()
+        defer { if started { source.stopAccessingSecurityScopedResource() } }
+        do {
+            let summary = try store.importLibrary(from: source, fallbackSettings: savedSettings)
+            cancel()
+            for task in likeTasks.values { task.cancel() }
+            likeTasks.removeAll(); likeGenerations.removeAll(); loadingLikes.removeAll()
+            settings = try store.read("settings.json", as: Settings.self) ?? savedSettings
+            savedSettings = settings
+            history = try store.read("history.json", as: [HistoryEntry].self) ?? []
+            preferences = try store.read("preferences.json", as: Preferences.self) ?? Preferences()
+            folderAccess = try FolderAccess(store: store, sandboxed: sandboxed)
+            nextChange = nil
+            folderAccessRevision += 1
+            storageStatus = "已导入：\(summary.historyCount) 条历史、\(summary.favoriteCount) 个点赞。请重新授权旧壁纸目录，再开启轮换。"
+            status = "旧版数据已导入，自动轮换已暂停"
+        } catch { errorMessage = "导入失败：\(error.localizedDescription)" }
     }
 
     func setNotifications(_ enabled: Bool) {
@@ -192,7 +293,10 @@ final class AppModel: ObservableObject {
 
     func changeNow() {
         guard !busy else { return }
-        do { try savedSettings.validate(apiKey: apiKey) }
+        do {
+            try savedSettings.validate(apiKey: apiKey)
+            _ = try acquireFolder(savedSettings.downloadDirectory)
+        }
         catch { errorMessage = error.localizedDescription; scheduleNext(); return }
         let targets = savedSettings.allDisplays ? displays : Array(displays.prefix(1))
         guard !targets.isEmpty else { errorMessage = "没有检测到可用显示器。"; scheduleNext(); return }
@@ -208,11 +312,13 @@ final class AppModel: ObservableObject {
             for target in targets {
                 do {
                     try Task.checkCancellation()
+                    let directoryLease = try acquireFolder(snapshot.downloadDirectory)
+                    defer { withExtendedLifetime(directoryLease) {} }
                     status = "正在为 \(target.name) 寻找 \(target.resolution) 壁纸…"
                     let wallpaper = try await client.search(settings: snapshot, display: target, apiKey: key, excluding: excluded, preferences: preferences)
                     try Task.checkCancellation()
                     status = "正在下载壁纸 \(wallpaper.id)…"
-                    let file = try await client.download(wallpaper, directory: URL(fileURLWithPath: snapshot.downloadDirectory))
+                    let file = try await client.download(wallpaper, directory: directoryLease.url)
                     try Task.checkCancellation()
                     guard generation == token else { return }
                     try DesktopService.apply(file, to: target)

@@ -109,7 +109,7 @@ private struct FavoriteCard: View {
                 }
                 Text(keywordDescription).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 HStack {
-                    Button("查看文件") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: favorite.filePath)]) }
+                    Button("查看文件") { model.revealFile(favorite.filePath) }
                     Spacer()
                     if let url = URL(string: favorite.wallpaper.url), url.scheme == "https", url.host == "wallhaven.cc" {
                         Link("来源 ↗", destination: url)

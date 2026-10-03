@@ -44,22 +44,16 @@ enum KeychainStore {
     }
 }
 
-struct LocalStore {
-    let directory: URL
-    init() {
-        directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Wallpaperi", isDirectory: true)
+typealias LocalStore = LibraryStore
+
+enum SandboxEnvironment {
+    static var isEnabled: Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.security.app-sandbox" as CFString, nil) as? Bool == true
     }
-    func read<T: Decodable>(_ name: String, as type: T.Type) throws -> T? {
-        let url = directory.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try JSONDecoder().decode(type, from: Data(contentsOf: url))
-    }
-    func save<T: Encodable>(_ value: T, name: String) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(value).write(to: directory.appendingPathComponent(name), options: .atomic)
+    static var legacyDirectory: URL {
+        let home = FileManager.default.homeDirectory(forUser: NSUserName()) ?? FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent("Library/Application Support/Wallpaperi", isDirectory: true)
     }
 }
 

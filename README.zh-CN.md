@@ -2,14 +2,14 @@
 
 [English](README.md) | **简体中文**
 
-原生 macOS 自动壁纸应用（1.1.0），SwiftUI + AppKit，图片来自 [Wallhaven](https://wallhaven.cc/help/api)。最低 macOS 13，无第三方依赖。
+原生 macOS 自动壁纸应用（1.2.0），SwiftUI + AppKit，图片来自 [Wallhaven](https://wallhaven.cc/help/api)。最低 macOS 13，无第三方依赖。
 
 ## 使用
 
 1. 打开 `dist/Wallpaperi.app`。如需登录时启动，先把它复制到「应用程序」目录。
 2. 在「通用设置」输入 API Key，点击「保存 Key」。普通 SFW 搜索可以不填 Key；NSFW 必须提供有效 Key。
 3. 在「壁纸筛选」填写关键词、选择分类和内容分级。SFW 始终包含，Sketchy 与 NSFW 可分别开启。
-4. 在「下载与存储」选择目录，默认 `~/Pictures/Wallpaperi`。
+4. 在「下载与存储」选择目录，沙盒版默认使用应用容器内的 `Application Support/Wallpaperi/Wallpapers`。外部目录必须通过系统选择器授权，授权可跨重启保留。
 5. 点击底部「保存设置」，再到「当前壁纸」点击「立即更换」。
 6. 在「显示与轮换」开启自动轮换并保存，可选 5 分钟至 24 小时。通知可在「通用设置」开启，需系统授权。
 
@@ -29,7 +29,7 @@
 ## 点赞与个性化推荐（1.1）
 
 - 在「当前壁纸」和更换记录中点击心形按钮点赞或取消点赞。「我的喜好」可查看收藏、学习到的标签/关键词/分类，以及关闭推荐。
-- 点赞保存在本机 `~/Library/Application Support/Wallpaperi/preferences.json`，不同步到 Wallhaven 账号，也不受最近 300 条更换记录限制。重复点赞同一图片不会叠加；取消点赞后从剩余收藏重新计算权重。
+- 点赞保存在本机应用资料库 `library.json`，不同步到 Wallhaven 账号，也不受最近 300 条更换记录限制。重复点赞同一图片不会叠加；取消点赞后从剩余收藏重新计算权重。
 - 点赞时通过详情接口获取标签和分类。新更换记录保存当时的搜索词，仅学习正向词，忽略排除词、用户名和查询运算符。1.0 旧记录没有关键词，按真实标签与分类学习，不会把当前搜索词当作历史词。
 - 启用且有有效偏好时，每次选图有 80% 概率走偏好策略、20% 概率随机探索，不是每五张固定四张推荐。无点赞或关闭时保持随机选图。
 - 偏好评分为标签相似度 ×6 + 关键词匹配 ×3 + 分类偏好 ×1。标签/关键词按最强匹配频次归一化，分类按点赞比例计算；最高分并列时随机选择。
@@ -44,9 +44,15 @@
 
 API Key 存在 macOS 钥匙串，服务名 `cc.wallpaperi.mac`，账号 `wallhaven-api-key`。请求通过 `X-API-Key` 头发送，使用无磁盘缓存的临时 URLSession；不会放入 URL、配置或应用日志。
 
-设置、最近 300 条历史记录及独立的点赞文件 `preferences.json`：`~/Library/Application Support/Wallpaperi/`。保存图片采用临时文件后原子移动，单张限制 100 MB；下载只允许 Wallhaven 图片域名的 HTTPS JPG/PNG。历史记录包含已应用图片的文件路径，不含 Key。
+沙盒版的设置、最近 300 条历史、点赞和安全作用域书签统一保存在 `~/Library/Containers/cc.wallpaperi.mac/Data/Library/Application Support/Wallpaperi/library.json`，通过原子替换写入。保存图片采用临时文件后原子移动，单张限制 100 MB；下载只允许 Wallhaven 图片域名的 HTTPS JPG/PNG。历史记录包含已应用图片的文件路径，不含 Key。
 
 更改保存目录不移动旧图，应用不自动删除已下载图片。Finder 中手动移动或删除后，相应历史预览可能不可用。取消下载或多屏部分失败时，已完成的图片可能仍保留。
+
+## 从旧版迁移
+
+在「下载与存储」点击「导入旧版数据…」，选择 `~/Library/Application Support/Wallpaperi`（可按 Command-Shift-G 输入路径）。导入会替换设置、合并去重历史和点赞、暂停自动轮换；保留原文件，并在替换已有目标资料库前生成备份。
+
+随后重新选择旧壁纸保存目录授权，保存设置并开启轮换。历史图片位于其他目录时，可从无法预览的图片处授权。导入不会复制其他版本的目录权限或 API Key。钥匙串服务名和账号保持不变；签名身份变化可能需要系统授权或重新输入 Key。
 
 ## 开发和构建
 
@@ -62,6 +68,7 @@ open dist/Wallpaperi.app
 
 可选环境变量：
 
+- `WALLPAPERI_SANDBOX=0`：本地开发时显式关闭 App Sandbox；默认打包启用沙盒。
 - `WALLPAPERI_BUILD_DIR`：构建缓存目录，默认 `.build`。
 - `WALLPAPERI_SIGN_IDENTITY`：签名身份，默认 `-`（本地 ad-hoc 签名）。公开分发需要自己的 Developer ID 签名和公证。
 - `WALLPAPERI_DISABLE_BUILD_SANDBOX=1`：仅用于已有外层沙盒不支持嵌套 SwiftPM 沙盒的环境。
@@ -87,8 +94,8 @@ dist/Wallpaperi.app/Contents/MacOS/Wallpaperi --smoke-test
 
 图片版权归原作者所有，历史记录中的「来源」可打开原始 Wallhaven 页面。
 
-### 1.1 验证结果（2026-10-03）
+### 1.2 验证结果（2026-10-03）
 
-31 项测试全部通过，包含真实 SFW 搜索、下载、详情标签获取和个性化选图。Release 构建、应用签名检查及「我的喜好」Tab 启动检查通过。自动化未操作你的实际点赞数据或更换当前桌面。
+40 项测试全部通过，包含真实 SFW 集成测试和 9 项存储/迁移测试。沙盒 Release 构建及签名检查通过。打包应用实测通过：外部目录授权后新进程重启读写、联网下载、独立测试钥匙串条目，以及 5120×2880 显示器壁纸更换和恢复。隐藏窗口后生产计时器继续运行，单独的后台更换/恢复测试也通过。
 
-升级后请退出正在运行的旧版，再打开 `dist/Wallpaperi.app`。原有设置与历史记录兼容保留。
+多屏硬件实测、安装并正确签名后的登录启动，以及签名变化后对旧 Key 的访问仍待验证。本次完成沙盒改造，不代表已完成 App Store 提交。复测命令及限制见[沙盒验证说明](docs/sandbox-validation.md)。

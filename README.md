@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A native macOS wallpaper changer built with SwiftUI and AppKit, powered by [Wallhaven](https://wallhaven.cc/help/api). Version 1.1.0 requires macOS 13 or later and has no third-party dependencies.
+A native macOS wallpaper changer built with SwiftUI and AppKit, powered by [Wallhaven](https://wallhaven.cc/help/api). Version 1.2.0 requires macOS 13 or later and has no third-party dependencies.
 
 The app interface is currently in Chinese. This repository provides documentation in English and Simplified Chinese.
 
@@ -11,7 +11,7 @@ The app interface is currently in Chinese. This repository provides documentatio
 1. Open `dist/Wallpaperi.app` after building it using the instructions below. To launch it at login, first copy it to your Applications folder.
 2. In **General**, enter your API key and click **Save Key**. Public SFW searches work without a key; NSFW requires a valid key.
 3. In **Filters**, enter keywords and choose categories and content ratings. SFW is always included; Sketchy and NSFW have separate toggles.
-4. In **Downloads & Storage**, choose a folder. The default is `~/Pictures/Wallpaperi`.
+4. In **Downloads & Storage**, choose a folder. The sandbox build defaults to its private `Application Support/Wallpaperi/Wallpapers` directory. External folders must be selected in the system picker; permission is retained across launches.
 5. Click **Save Settings**, then **Change Now** in **Current Wallpaper**.
 6. Enable automatic rotation in **Displays & Rotation** and save. Intervals range from 5 minutes to 24 hours. Notifications can be enabled in General and require macOS permission.
 
@@ -32,7 +32,7 @@ Closing the window keeps the app running in the menu bar, where you can change w
 
 Click the heart on Current Wallpaper or a history entry to like or unlike an image. **My Preferences** shows your collection, learned tags, keywords and categories, and a toggle for personalized recommendations.
 
-Likes are stored locally in `~/Library/Application Support/Wallpaperi/preferences.json`. They are not synchronized with your Wallhaven account and are independent of the 300-entry history limit. Liking the same image again does not increase its weight. Unliking rebuilds the profile from the remaining likes.
+Likes are stored locally in the app’s `library.json` archive. They are not synchronized with your Wallhaven account and are independent of the 300-entry history limit. Liking the same image again does not increase its weight. Unliking rebuilds the profile from the remaining likes.
 
 The app fetches tags and categories from the wallpaper details endpoint. New history entries also retain the search query used at the time. Only positive keywords are learned; exclusions, usernames, and query operators are ignored. Version 1.0 history has no search keywords, so those likes learn from actual tags and categories instead of assuming your current query was used.
 
@@ -51,11 +51,17 @@ Changes to likes or the recommendation toggle apply when the next selection star
 
 API keys are stored in macOS Keychain under service `cc.wallpaperi.mac` and account `wallhaven-api-key`. Requests use the `X-API-Key` header and an ephemeral URLSession without a disk cache. Keys are not included in URLs, ordinary configuration files, or app logs.
 
-Settings, the latest 300 history entries, and the separate `preferences.json` file live in `~/Library/Application Support/Wallpaperi/`. History and likes include local image paths, but not the API key.
+Sandbox builds store settings, the latest 300 history entries, likes, and security-scoped folder bookmarks in `~/Library/Containers/cc.wallpaperi.mac/Data/Library/Application Support/Wallpaperi/library.json`. Updates replace this archive atomically. History and likes include local image paths, but not the API key.
 
 Downloads use temporary files followed by an atomic move, with a 100 MB limit per image. Only HTTPS JPG/PNG downloads from the Wallhaven image host are accepted.
 
 Changing the download folder does not move existing files. The app does not automatically delete downloaded images. Moving or deleting files in Finder may make their previews unavailable. Completed downloads may remain after cancellation or a partial multi-display failure.
+
+## Upgrading to the sandbox build
+
+In **Downloads & Storage**, choose **Import Legacy Data** and select `~/Library/Application Support/Wallpaperi` using the system picker (Command-Shift-G opens a path field). Import replaces settings, merges history and likes without duplicates, pauses rotation, and preserves the source files. An existing destination archive is backed up before replacement.
+
+Select the old wallpaper download folder again to grant access, then save settings and re-enable rotation. Older image folders can also be authorized from their unavailable previews. Import does not transfer folder permissions or API keys. The Keychain service and account are unchanged; a signing identity change may require system approval or entering the key again.
 
 ## Development and builds
 
@@ -73,6 +79,7 @@ Optional environment variables:
 
 | Variable | Purpose |
 | --- | --- |
+| `WALLPAPERI_SANDBOX=0` | Explicitly build without App Sandbox for local development; packaged builds enable it by default. |
 | `WALLPAPERI_BUILD_DIR` | Build cache directory; defaults to `.build`. |
 | `WALLPAPERI_SIGN_IDENTITY` | Signing identity; defaults to `-` for local ad-hoc signing. Public distribution requires your own Developer ID signing and notarization. |
 | `WALLPAPERI_DISABLE_BUILD_SANDBOX=1` | For environments where an outer sandbox prevents SwiftPM's nested build sandbox. |
@@ -97,11 +104,11 @@ Tests cover request encoding, API key headers, content ratings, landscape and po
 
 Your environment still needs verification of API key and NSFW account permissions, actual wallpaper application, multiple displays, notification authorization, and login items. A fresh installation does not automatically change the wallpaper on first launch.
 
-### Version 1.1 verification — October 3, 2026
+### Version 1.2 verification — October 3, 2026
 
-All 31 tests passed, including live SFW search, download, tag metadata, and personalized selection. The release build, signature verification, and My Preferences tab launch check also passed. Automated checks did not modify your actual likes or current desktop wallpaper.
+All 40 tests passed, including live SFW integration and nine storage/migration tests. The sandboxed release build and signature verification passed. Packaged-app checks confirmed external folder read/write after a fresh process launch, network download, isolated Keychain operations, and wallpaper change/restore on a 5120×2880 display. The production ticker continued with its window hidden; a separate hidden-window wallpaper change/restore also passed.
 
-To upgrade, quit the running older version and reopen `dist/Wallpaperi.app`. Existing settings and history remain compatible.
+Multiple-display hardware testing, installed/signed login startup, and access to an existing Keychain credential after a signing identity change remain unverified. This is a sandbox implementation, not a completed App Store submission. See [sandbox validation](docs/sandbox-validation.md) for repeatable checks and limitations.
 
 ## Image attribution
 

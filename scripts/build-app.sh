@@ -13,5 +13,10 @@ cp "$BIN_DIR/Wallpaperi" "$APP/Contents/MacOS/Wallpaperi.new"
 mv -f "$APP/Contents/MacOS/Wallpaperi.new" "$APP/Contents/MacOS/Wallpaperi"
 cp Info.plist "$APP/Contents/Info.plist"
 swift scripts/make-icon.swift "$APP/Contents/Resources"
-codesign --force --deep --sign "${WALLPAPERI_SIGN_IDENTITY:--}" "$APP"
+SIGN_FLAGS=(--force --options runtime --sign "${WALLPAPERI_SIGN_IDENTITY:--}")
+if [ "${WALLPAPERI_SANDBOX:-1}" = "1" ]; then
+    SIGN_FLAGS+=(--entitlements Wallpaperi.entitlements)
+fi
+codesign "${SIGN_FLAGS[@]}" "$APP"
+codesign --verify --deep --strict "$APP"
 echo "Built: $(pwd)/$APP"

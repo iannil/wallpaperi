@@ -65,22 +65,16 @@ struct PageHeading: View {
 
 struct LocalPreview: View {
     let path: String
-    private var thumbnail: NSImage? {
-        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1200,
-                kCGImageSourceCreateThumbnailWithTransform: true
-              ] as CFDictionary) else { return nil }
-        return NSImage(cgImage: image, size: .zero)
-    }
+    @EnvironmentObject var model: AppModel
+    private var thumbnail: NSImage? { model.previewImage(path) }
     var body: some View {
         if let thumbnail {
             Image(nsImage: thumbnail).resizable().scaledToFit()
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "photo.badge.exclamationmark").font(.largeTitle)
-                Text("预览不可用，文件可能已移动").font(.callout)
+                Text("预览不可用，文件可能需授权或已移动").font(.caption)
+                Button("授权图片目录") { model.authorizeImageFolder(path) }.controlSize(.small)
             }.foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -227,6 +221,16 @@ struct StorageView: View {
                     Button("在 Finder 中打开") { model.revealDirectory() }
                 }.padding(10)
             }
+            HStack {
+                Label(model.sandboxed ? "App Sandbox 已启用" : "非沙盒运行", systemImage: "lock.shield")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("使用应用内目录") { model.usePrivateDirectory() }
+                Button("导入旧版数据…") { model.importLegacyLibrary() }
+            }
+            if !model.storageStatus.isEmpty {
+                Text(model.storageStatus).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Text("修改目录后，新壁纸存入新位置，已有文件不移动、不自动删除。最近保留 300 条应用记录。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
@@ -250,7 +254,7 @@ struct StorageView: View {
                         }
                         Spacer()
                         LikeButton(entry: entry)
-                        Button("查看文件") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.filePath)]) }
+                        Button("查看文件") { model.revealFile(entry.filePath) }
                         if let url = URL(string: entry.wallpaper.url), url.scheme == "https", url.host == "wallhaven.cc" {
                             Link("来源", destination: url)
                         }
@@ -296,7 +300,7 @@ struct GeneralView: View {
                 }
             }
             Section("关于") {
-                LabeledContent("Wallpaperi", value: "1.1.0 · macOS 原生")
+                LabeledContent("Wallpaperi", value: "1.2.0 · macOS 原生")
                 Link("Wallhaven API 文档 ↗", destination: URL(string: "https://wallhaven.cc/help/api")!)
             }
         }.formStyle(.grouped).onAppear { model.refreshLoginStatus() }

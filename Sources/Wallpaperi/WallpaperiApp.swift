@@ -7,6 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = notifications
         NSApp.setActivationPolicy(.regular)
+        if ProcessInfo.processInfo.arguments.contains("--sandbox-check") {
+            Task { @MainActor in
+                await SandboxDiagnostics.run()
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--smoke-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 print("Wallpaperi launch OK; windows=\(NSApp.windows.count)")
